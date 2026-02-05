@@ -8,6 +8,7 @@ app.use(express.json());
 
 // Port (nur 1x!)
 const PORT = process.env.PORT;
+  console.log(`Server listening on port ${PORT}`);
 
 // Middleware: log request method and url
 app.use((req, res, next) => {
