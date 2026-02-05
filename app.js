@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 
 // Port (nur 1x!)
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 // Middleware: log request method and url
 app.use((req, res, next) => {
