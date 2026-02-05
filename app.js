@@ -1,11 +1,12 @@
 
-const express = require('express');
-const app = express();
+const express = require("express");
+const path = require("path");
+const indexRouter = require("./routes/index");
 
+const app = express();
 app.use(express.json());
 
-const path = require('path');
-const indexRouter = require('./routes/index');
+// Port (nur 1x!)
 const PORT = process.env.PORT || 3000;
 
 // Middleware: log request method and url
@@ -15,12 +16,12 @@ app.use((req, res, next) => {
 });
 
 // Static files
-app.use(express.static(path.resolve(__dirname, 'public')));
+app.use(express.static(path.resolve(__dirname, "public")));
 
 // Main routes
-app.use('/', indexRouter);
+app.use("/", indexRouter);
 
-// WhatsApp Webhook verification
+// WhatsApp Webhook verification (GET)
 app.get("/webhook", (req, res) => {
   const verify_token = process.env.VERIFY_TOKEN;
 
@@ -34,29 +35,24 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// WhatsApp Webhook receiver
+// WhatsApp Webhook receiver (POST)  ✅ mit Logging
 app.post("/webhook", (req, res) => {
+  console.log("INCOMING WEBHOOK:", JSON.stringify(req.body, null, 2));
   return res.sendStatus(200);
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).sendFile(path.resolve(__dirname, 'views', '404.html'));
+  res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
 });
 
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).send('Internal Server Error');
+  res.status(500).send("Internal Server Error");
 });
 
-const PORT = process.env.PORT || 3000;
-
+// Start server (Railway kompatibel)
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
-});
-
-app.post("/webhook", (req, res) => {
-  console.log("INCOMING WEBHOOK:", JSON.stringify(req.body, null, 2));
-  return res.sendStatus(200);
 });
