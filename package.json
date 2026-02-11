@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "A minimal Node.js web application.",
   "main": "app.js",
+  "engines": 
+  "node": ">=18"
   "author": "codestorm",
   "license": "Apache-2.0",
   "dependencies": {
