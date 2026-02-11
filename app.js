@@ -16,7 +16,10 @@ process.on("unhandledRejection", (err) => {
 });
 
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
+if (!PORT) {
+  console.error("PORT is not defined!");
+}
 
 // ✅ Optional: Boot-Log, damit du im Railway-Log sofort siehst, ob PORT gesetzt ist
 console.log("BOOT: process.env.PORT =", PORT);
