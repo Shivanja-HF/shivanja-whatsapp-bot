@@ -6,6 +6,13 @@ const indexRouter = require("./routes/index");
 
 const app = express();
 app.use(express.json());
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED REJECTION:", err);
+});
 
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
 const PORT = process.env.PORT || 3000;
