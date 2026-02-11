@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
 // ✅ Optional: Boot-Log, damit du im Railway-Log sofort siehst, ob PORT gesetzt ist
 console.log("BOOT: process.env.PORT =", PORT);
