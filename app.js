@@ -1,5 +1,6 @@
 // app.js (Railway + WhatsApp Cloud API Webhook-ready)
 
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 const express = require("express");
 const path = require("path");
 const indexRouter = require("./routes/index");
