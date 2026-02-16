@@ -23,10 +23,10 @@ process.on("unhandledRejection", (err) => {
 const PORT = Number(process.env.PORT) || 3000;
 console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
 
-// ✅ WhatsApp Cloud API config (ENV required)
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+// ✅ WhatsApp Cloud API config (ENV)
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN; // MUSS in Railway Variables gesetzt sein
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // <-- in Railway Variables setzen
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const GRAPH_VERSION = process.env.GRAPH_VERSION || "v21.0";
 
 // Middleware: log request method and url
@@ -35,21 +35,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Static files
-app.use(express.static(path.resolve(__dirname, "public")));
-
-// Main routes
-app.use("/", indexRouter);
-
 // ✅ Healthcheck (Railway)
 app.get("/health", (req, res) => res.status(200).send("ok"));
+
+// ✅ Root (optional)
 app.get("/", (req, res) => res.status(200).send("ok"));
 
-// WhatsApp Webhook verification (GET)
+// ✅ WhatsApp Webhook verification (GET) — MUSS vor anderen Routern kommen
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
+
+  // Debug (hilft bei falschen Tokens)
+  console.log("WEBHOOK VERIFY:", { mode, token, hasVerifyToken: !!VERIFY_TOKEN });
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
@@ -59,10 +58,6 @@ app.get("/webhook", (req, res) => {
 
 // --- Helpers -------------------------------------------------------------
 
-/**
- * Send a WhatsApp text message via Cloud API
- * Requires: WHATSAPP_TOKEN, PHONE_NUMBER_ID
- */
 async function sendTextMessage({ to, text }) {
   if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
     console.error("Missing WHATSAPP_TOKEN or PHONE_NUMBER_ID (Railway Variables).");
@@ -97,9 +92,6 @@ async function sendTextMessage({ to, text }) {
   return { ok: true, data };
 }
 
-/**
- * Extract first incoming message (text) from WhatsApp webhook payload
- */
 function extractIncomingMessage(body) {
   const value = body?.entry?.[0]?.changes?.[0]?.value;
   const msg = value?.messages?.[0];
@@ -114,9 +106,6 @@ function extractIncomingMessage(body) {
   };
 }
 
-/**
- * Simple intent router: Termin / Info / Marketing
- */
 function detectIntent(text) {
   const t = (text || "").toLowerCase();
 
@@ -137,19 +126,15 @@ function menuText() {
   );
 }
 
-// WhatsApp Webhook receiver (POST) ✅ mit Parsing + Auto-Reply
+// ✅ WhatsApp Webhook receiver (POST)
 app.post("/webhook", async (req, res) => {
-  // Wichtig: sofort 200 zurückgeben (WhatsApp erwartet schnelle Antwort)
   res.sendStatus(200);
 
   try {
     console.log("INCOMING WEBHOOK:", JSON.stringify(req.body, null, 2));
 
     const incoming = extractIncomingMessage(req.body);
-    if (!incoming) {
-      // z.B. statuses/read receipts/others
-      return;
-    }
+    if (!incoming) return;
 
     const { from, text } = incoming;
     console.log("PARSED MESSAGE:", { from, text });
@@ -173,49 +158,4 @@ app.post("/webhook", async (req, res) => {
       await sendTextMessage({
         to: from,
         text:
-          "Infos – was brauchst du?\n" +
-          "1) Öffnungszeiten\n" +
-          "2) Adresse/Anfahrt\n" +
-          "3) Preise/Probetraining\n\n" +
-          "Antworte mit 1, 2 oder 3.",
-      });
-      return;
-    }
-
-    if (intent === "MARKETING") {
-      await sendTextMessage({
-        to: from,
-        text:
-          "Angebote – willst du aktuelle Aktionen & Kurse per WhatsApp bekommen?\n" +
-          "Antworte mit JA oder NEIN.",
-      });
-      return;
-    }
-
-    // UNKNOWN → Menü
-    await sendTextMessage({ to: from, text: menuText() });
-  } catch (e) {
-    console.error("WEBHOOK ERROR:", e);
-  }
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
-});
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).send("Internal Server Error");
-});
-
-// ✅ Start server (Railway kompatibel) — NUR EINMAL!
-let server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server listening on port ${PORT}`);
-});
-
-server.on("error", (err) => {
-  console.error("LISTEN ERROR:", err);
-  process.exit(1);
-});
+          "Infos – was b
