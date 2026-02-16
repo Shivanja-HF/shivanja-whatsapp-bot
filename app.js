@@ -158,4 +158,52 @@ app.post("/webhook", async (req, res) => {
       await sendTextMessage({
         to: from,
         text:
-          "Infos – was b
+          "Infos – was brauchst du?\n" +
+          "1) Öffnungszeiten\n" +
+          "2) Adresse/Anfahrt\n" +
+          "3) Preise/Probetraining\n\n" +
+          "Antworte mit 1, 2 oder 3.",
+      });
+      return;
+    }
+
+    if (intent === "MARKETING") {
+      await sendTextMessage({
+        to: from,
+        text:
+          "Angebote – willst du aktuelle Aktionen & Kurse per WhatsApp bekommen?\n" +
+          "Antworte mit JA oder NEIN.",
+      });
+      return;
+    }
+
+    await sendTextMessage({ to: from, text: menuText() });
+  } catch (e) {
+    console.error("WEBHOOK ERROR:", e);
+  }
+});
+
+// Static files + Main routes NACH webhook
+app.use(express.static(path.resolve(__dirname, "public")));
+app.use("/", indexRouter);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send("Internal Server Error");
+});
+
+// ✅ Start server (NUR EINMAL!)
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+
+server.on("error", (err) => {
+  console.error("LISTEN ERROR:", err);
+  process.exit(1);
+});
