@@ -1,12 +1,16 @@
 // app.js (Railway + WhatsApp Cloud API Webhook-ready)
 
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = (...args) =>
+  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+
 const express = require("express");
 const path = require("path");
 const indexRouter = require("./routes/index");
 
 const app = express();
 app.use(express.json());
+
+// --- Robust error logging -------------------------------------------------
 process.on("uncaughtException", (err) => {
   console.error("UNCAUGHT EXCEPTION:", err);
 });
@@ -18,15 +22,11 @@ process.on("unhandledRejection", (err) => {
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
 const PORT = Number(process.env.PORT) || 3000;
 console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
-}
-
-// ✅ Optional: Boot-Log, damit du im Railway-Log sofort siehst, ob PORT gesetzt ist
-console.log("BOOT: process.env.PORT =", PORT);
 
 // ✅ WhatsApp Cloud API config (ENV required)
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // <-- unbedingt in Railway Variables setzen
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID; // <-- in Railway Variables setzen
 const GRAPH_VERSION = process.env.GRAPH_VERSION || "v21.0";
 
 // Middleware: log request method and url
@@ -41,7 +41,7 @@ app.use(express.static(path.resolve(__dirname, "public")));
 // Main routes
 app.use("/", indexRouter);
 
-// ✅ Healthcheck (hilft bei Plattform-Checks)
+// ✅ Healthcheck (Railway)
 app.get("/health", (req, res) => res.status(200).send("ok"));
 app.get("/", (req, res) => res.status(200).send("ok"));
 
@@ -137,7 +137,7 @@ function menuText() {
   );
 }
 
-// WhatsApp Webhook receiver (POST) ✅ mit Parsing + Echo/Auto-Reply
+// WhatsApp Webhook receiver (POST) ✅ mit Parsing + Auto-Reply
 app.post("/webhook", async (req, res) => {
   // Wichtig: sofort 200 zurückgeben (WhatsApp erwartet schnelle Antwort)
   res.sendStatus(200);
@@ -154,10 +154,6 @@ app.post("/webhook", async (req, res) => {
     const { from, text } = incoming;
     console.log("PARSED MESSAGE:", { from, text });
 
-    // ✅ Proof-of-life: Echo (kannst du später entfernen)
-    // await sendTextMessage({ to: from, text: `Echo: ${text || "(leer)"}` });
-
-    // ✅ Minimaler produktiver Flow: Menü + Routing
     const intent = detectIntent(text);
 
     if (intent === "APPOINTMENT") {
@@ -214,19 +210,12 @@ app.use((err, req, res, next) => {
   res.status(500).send("Internal Server Error");
 });
 
-// ✅ Sauberer Shutdown (Railway killt bei Deploys alte Container)
-let server;
-
-server = app.listen(PORT, "0.0.0.0", () => {
+// ✅ Start server (Railway kompatibel) — NUR EINMAL!
+let server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
 });
 
 server.on("error", (err) => {
   console.error("LISTEN ERROR:", err);
   process.exit(1);
-});
-
-// Start server (Railway kompatibel)
-server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server listening on port ${PORT}`);
 });
