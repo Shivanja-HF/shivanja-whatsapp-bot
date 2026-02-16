@@ -1,81 +1,106 @@
-// app.js (Railway + WhatsApp Cloud API Webhook-ready)
-
-// Node 18+ hat fetch global; wir lassen dein Pattern trotzdem robust drin:
-const fetchFn = global.fetch
-  ? global.fetch
-  : (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
+// app.js (Railway + WhatsApp Cloud API Webhook-ready, robust)
 
 const express = require("express");
 const path = require("path");
-const indexRouter = require("./routes/index");
+
+// Optional: wenn du weiter deine bisherigen Seiten nutzen willst, lass das drin.
+// Wenn nicht vorhanden/gebraucht, kannst du die 2 Zeilen wieder löschen.
+let indexRouter = null;
+try {
+  indexRouter = require("./routes/index");
+} catch (_) {
+  // ignore
+}
 
 const app = express();
-app.use(express.json());
 
 // --- Robust error logging -------------------------------------------------
 process.on("uncaughtException", (err) => console.error("UNCAUGHT EXCEPTION:", err));
 process.on("unhandledRejection", (err) => console.error("UNHANDLED REJECTION:", err));
 
-// ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
+// Railway: immer PORT aus ENV nutzen
 const PORT = Number(process.env.PORT) || 3000;
 console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
 
-// ✅ ENV: akzeptiere GROSS + klein (damit du dich nicht mehr abschießt)
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || process.env.verify_token;
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || process.env.whatsapp_token;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || process.env.phone_number_id;
-const GRAPH_VERSION = process.env.GRAPH_VERSION || process.env.graph_version || "v21.0";
+// Helper: ENV kann bei dir teils lowercase sein (siehe Screenshot), daher beide Varianten lesen.
+const envAny = (names) => {
+  for (const n of names) {
+    const v = process.env[n];
+    if (typeof v === "string" && v.trim() !== "") return v.trim();
+  }
+  return undefined;
+};
 
-// Middleware: log request method and url
+// WhatsApp Cloud API config (ENV required)
+const VERIFY_TOKEN = envAny(["VERIFY_TOKEN", "verify_token"]);
+const WHATSAPP_TOKEN = envAny(["WHATSAPP_TOKEN", "whatsapp_token"]);
+const PHONE_NUMBER_ID = envAny(["PHONE_NUMBER_ID", "phone_number_id"]);
+const GRAPH_VERSION = envAny(["GRAPH_VERSION", "graph_version"]) || "v21.0";
+
+// Body parser
+app.use(express.json({ limit: "2mb" }));
+
+// Request logger
 app.use((req, res, next) => {
   console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
-// ✅ Healthcheck (Railway) – MUSS vor allen Routern kommen
+// Static files (optional)
+app.use(express.static(path.resolve(__dirname, "public")));
+
+// Healthcheck
 app.get("/health", (req, res) => res.status(200).send("ok"));
+
+// Root: einfache OK-Antwort (damit nichts “dazwischenfunkt”)
 app.get("/", (req, res) => res.status(200).send("ok"));
 
+// Optional UI / alte Routes: bewusst NICHT auf "/" mounten, sonst kollidiert es gern.
+if (indexRouter) {
+  app.use("/ui", indexRouter); // deine bisherigen Seiten wären dann unter /ui erreichbar
+}
+
+// ------------------------------------------------------------------------
 // WhatsApp Webhook verification (GET)
+// Meta ruft: /webhook?hub.mode=subscribe&hub.challenge=12345&hub.verify_token=...
+// Wir müssen exakt "challenge" zurückgeben, wenn verify_token passt.
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (!VERIFY_TOKEN) {
-    console.error("VERIFY_TOKEN missing in Railway Variables (VERIFY_TOKEN / verify_token).");
-    return res.sendStatus(500);
-  }
+  console.log("WEBHOOK_VERIFY:", { mode, token, hasChallenge: !!challenge });
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    return res.status(200).send(challenge);
+  if (mode === "subscribe" && token && VERIFY_TOKEN && token === VERIFY_TOKEN) {
+    return res.status(200).send(String(challenge));
   }
   return res.sendStatus(403);
 });
 
-// Static files
-app.use(express.static(path.resolve(__dirname, "public")));
+// ------------------------------------------------------------------------
+// Helpers
 
-// Main routes
-app.use("/", indexRouter);
-
-// --- Helpers -------------------------------------------------------------
+// Node 20+ hat global fetch; fallback nur falls nicht vorhanden.
+async function doFetch(url, options) {
+  if (typeof fetch === "function") return fetch(url, options);
+  const mod = await import("node-fetch");
+  return mod.default(url, options);
+}
 
 async function sendTextMessage({ to, text }) {
   if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
-    console.error("Missing WHATSAPP_TOKEN/whatsapp_token or PHONE_NUMBER_ID/phone_number_id.");
+    console.error("Missing WHATSAPP_TOKEN or PHONE_NUMBER_ID (Railway Variables).");
     return { ok: false, error: "missing_env" };
   }
 
   const url = `https://graph.facebook.com/${GRAPH_VERSION}/${PHONE_NUMBER_ID}/messages`;
-
   const payload = {
     messaging_product: "whatsapp",
     to,
     text: { body: text },
   };
 
-  const resp = await fetchFn(url, {
+  const resp = await doFetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -113,7 +138,8 @@ function detectIntent(text) {
   const t = (text || "").toLowerCase();
 
   if (/(termin|buch|buchung|zeit|uhr|heute|morgen|woche|datum)/.test(t)) return "APPOINTMENT";
-  if (/(adresse|wo|anfahrt|öffnungs|zeiten|preis|kosten|mitglied|tarif|probetraining)/.test(t)) return "INFO";
+  if (/(adresse|wo|anfahrt|öffnungs|oeffnungs|zeiten|preis|kosten|mitglied|tarif|probetraining)/.test(t))
+    return "INFO";
   if (/(angebot|aktion|kurs|deal|rabatt|special|challenge)/.test(t)) return "MARKETING";
 
   return "UNKNOWN";
@@ -129,16 +155,17 @@ function menuText() {
   );
 }
 
+// ------------------------------------------------------------------------
 // WhatsApp Webhook receiver (POST)
+// Wichtig: Meta erwartet schnell ein 200, daher sofort antworten, dann intern verarbeiten.
 app.post("/webhook", async (req, res) => {
-  // WhatsApp erwartet schnelle Antwort
   res.sendStatus(200);
 
   try {
     console.log("INCOMING WEBHOOK:", JSON.stringify(req.body, null, 2));
 
     const incoming = extractIncomingMessage(req.body);
-    if (!incoming) return;
+    if (!incoming) return; // z.B. statuses/read receipts
 
     const { from, text } = incoming;
     console.log("PARSED MESSAGE:", { from, text });
@@ -187,21 +214,40 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// 404 handler
+// 404 handler (optional)
 app.use((req, res) => {
-  res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
+  const notFoundPath = path.resolve(__dirname, "views", "404.html");
+  return res.status(404).sendFile(notFoundPath, (err) => {
+    if (err) res.status(404).send("Not Found");
+  });
 });
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("EXPRESS ERROR:", err);
   res.status(500).send("Internal Server Error");
 });
 
-// ✅ Start server (Railway kompatibel) — NUR EINMAL!
+// ------------------------------------------------------------------------
+// Start server
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
 });
+
+// Railway/Container beendet Deployments mit SIGTERM – das ist normal.
+// Wir beenden dann sauber (damit es nicht wie “Crash” aussieht).
+function shutdown(signal) {
+  console.log(`Received ${signal}. Shutting down gracefully...`);
+  server.close(() => {
+    console.log("HTTP server closed.");
+    process.exit(0);
+  });
+  // Falls irgendwas hängt:
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 server.on("error", (err) => {
   console.error("LISTEN ERROR:", err);
