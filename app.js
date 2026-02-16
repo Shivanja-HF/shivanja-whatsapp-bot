@@ -16,9 +16,8 @@ process.on("unhandledRejection", (err) => {
 });
 
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
-const PORT = process.env.PORT;
-if (!PORT) {
-  console.error("PORT is not defined!");
+const PORT = Number(process.env.PORT) || 3000;
+console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
 }
 
 // ✅ Optional: Boot-Log, damit du im Railway-Log sofort siehst, ob PORT gesetzt ist
@@ -217,16 +216,14 @@ app.use((err, req, res, next) => {
 
 // ✅ Sauberer Shutdown (Railway killt bei Deploys alte Container)
 let server;
-process.on("SIGTERM", () => {
-  console.log("SIGTERM received - closing server");
-  if (server) {
-    server.close(() => {
-      console.log("Server closed");
-      process.exit(0);
-    });
-  } else {
-    process.exit(0);
-  }
+
+server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+
+server.on("error", (err) => {
+  console.error("LISTEN ERROR:", err);
+  process.exit(1);
 });
 
 // Start server (Railway kompatibel)
