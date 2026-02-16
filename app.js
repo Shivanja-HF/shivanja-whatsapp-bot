@@ -1,7 +1,9 @@
 // app.js (Railway + WhatsApp Cloud API Webhook-ready)
 
-const fetch = (...args) =>
-  import("node-fetch").then(({ default: fetch }) => fetch(...args));
+// Node 18+ hat fetch global; wir lassen dein Pattern trotzdem robust drin:
+const fetchFn = global.fetch
+  ? global.fetch
+  : (...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args));
 
 const express = require("express");
 const path = require("path");
@@ -11,23 +13,18 @@ const app = express();
 app.use(express.json());
 
 // --- Robust error logging -------------------------------------------------
-process.on("uncaughtException", (err) => {
-  console.error("UNCAUGHT EXCEPTION:", err);
-});
-
-process.on("unhandledRejection", (err) => {
-  console.error("UNHANDLED REJECTION:", err);
-});
+process.on("uncaughtException", (err) => console.error("UNCAUGHT EXCEPTION:", err));
+process.on("unhandledRejection", (err) => console.error("UNHANDLED REJECTION:", err));
 
 // ✅ Railway: IMMER den von Railway gesetzten PORT verwenden
 const PORT = Number(process.env.PORT) || 3000;
 console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
 
-// ✅ WhatsApp Cloud API config (ENV)
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN; // MUSS in Railway Variables gesetzt sein
-const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-const GRAPH_VERSION = process.env.GRAPH_VERSION || "v21.0";
+// ✅ ENV: akzeptiere GROSS + klein (damit du dich nicht mehr abschießt)
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || process.env.verify_token;
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN || process.env.whatsapp_token;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID || process.env.phone_number_id;
+const GRAPH_VERSION = process.env.GRAPH_VERSION || process.env.graph_version || "v21.0";
 
 // Middleware: log request method and url
 app.use((req, res, next) => {
@@ -35,20 +32,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ Healthcheck (Railway)
+// ✅ Healthcheck (Railway) – MUSS vor allen Routern kommen
 app.get("/health", (req, res) => res.status(200).send("ok"));
-
-// ✅ Root (optional)
 app.get("/", (req, res) => res.status(200).send("ok"));
 
-// ✅ WhatsApp Webhook verification (GET) — MUSS vor anderen Routern kommen
+// WhatsApp Webhook verification (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  // Debug (hilft bei falschen Tokens)
-  console.log("WEBHOOK VERIFY:", { mode, token, hasVerifyToken: !!VERIFY_TOKEN });
+  if (!VERIFY_TOKEN) {
+    console.error("VERIFY_TOKEN missing in Railway Variables (VERIFY_TOKEN / verify_token).");
+    return res.sendStatus(500);
+  }
 
   if (mode === "subscribe" && token === VERIFY_TOKEN) {
     return res.status(200).send(challenge);
@@ -56,11 +53,17 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+// Static files
+app.use(express.static(path.resolve(__dirname, "public")));
+
+// Main routes
+app.use("/", indexRouter);
+
 // --- Helpers -------------------------------------------------------------
 
 async function sendTextMessage({ to, text }) {
   if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
-    console.error("Missing WHATSAPP_TOKEN or PHONE_NUMBER_ID (Railway Variables).");
+    console.error("Missing WHATSAPP_TOKEN/whatsapp_token or PHONE_NUMBER_ID/phone_number_id.");
     return { ok: false, error: "missing_env" };
   }
 
@@ -72,7 +75,7 @@ async function sendTextMessage({ to, text }) {
     text: { body: text },
   };
 
-  const resp = await fetch(url, {
+  const resp = await fetchFn(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -126,8 +129,9 @@ function menuText() {
   );
 }
 
-// ✅ WhatsApp Webhook receiver (POST)
+// WhatsApp Webhook receiver (POST)
 app.post("/webhook", async (req, res) => {
+  // WhatsApp erwartet schnelle Antwort
   res.sendStatus(200);
 
   try {
@@ -183,10 +187,6 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Static files + Main routes NACH webhook
-app.use(express.static(path.resolve(__dirname, "public")));
-app.use("/", indexRouter);
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
@@ -198,7 +198,7 @@ app.use((err, req, res, next) => {
   res.status(500).send("Internal Server Error");
 });
 
-// ✅ Start server (NUR EINMAL!)
+// ✅ Start server (Railway kompatibel) — NUR EINMAL!
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
 });
