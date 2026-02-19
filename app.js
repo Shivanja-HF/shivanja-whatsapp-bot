@@ -108,6 +108,19 @@ app.post("/webhook", (req, res) => {
   // Wichtig: immer sofort 200 geben
   res.sendStatus(200);
 
+  // ✅ NEU: Rohdaten an webhook.site weiterleiten (Debug)
+  if (WEBHOOKSITE_URL) {
+    fetch(WEBHOOKSITE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        at: new Date().toISOString(),
+        headers: req.headers,
+        body: req.body,
+      }),
+    }).catch((e) => console.error("WEBHOOKSITE forward failed:", e));
+  }
+
   try {
     console.log("POST /webhook HIT");
     console.log("BODY:", JSON.stringify(req.body));
@@ -135,6 +148,7 @@ app.post("/webhook", (req, res) => {
     console.error("WEBHOOK ERROR:", e);
   }
 });
+
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
