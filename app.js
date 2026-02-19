@@ -164,6 +164,7 @@ app.post("/webhook", async (req, res) => {
   console.log("BODY:", JSON.stringify(req.body, null, 2));
 
   res.sendStatus(200);
+});
   
     const incoming = extractIncomingMessage(req.body);
     if (!incoming) return; // z.B. statuses/read receipts
