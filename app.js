@@ -4,7 +4,6 @@ const express = require("express");
 const path = require("path");
 
 // Optional: wenn du weiter deine bisherigen Seiten nutzen willst, lass das drin.
-// Wenn nicht vorhanden/gebraucht, kannst du die 2 Zeilen wieder löschen.
 let indexRouter = null;
 try {
   indexRouter = require("./routes/index");
@@ -22,7 +21,7 @@ process.on("unhandledRejection", (err) => console.error("UNHANDLED REJECTION:", 
 const PORT = Number(process.env.PORT) || 3000;
 console.log("BOOT: process.env.PORT =", process.env.PORT, "=> using PORT =", PORT);
 
-// Helper: ENV kann bei dir teils lowercase sein (siehe Screenshot), daher beide Varianten lesen.
+// Helper: ENV kann bei dir teils lowercase sein, daher beide Varianten lesen.
 const envAny = (names) => {
   for (const n of names) {
     const v = process.env[n];
@@ -52,24 +51,22 @@ app.use(express.static(path.resolve(__dirname, "public")));
 // Healthcheck
 app.get("/health", (req, res) => res.status(200).send("ok"));
 
-// Root: einfache OK-Antwort (damit nichts “dazwischenfunkt”)
+// Root: einfache OK-Antwort
 app.get("/", (req, res) => res.status(200).send("ok"));
 
-// Optional UI / alte Routes: bewusst NICHT auf "/" mounten, sonst kollidiert es gern.
+// Optional UI / alte Routes: bewusst NICHT auf "/" mounten
 if (indexRouter) {
-  app.use("/ui", indexRouter); // deine bisherigen Seiten wären dann unter /ui erreichbar
+  app.use("/ui", indexRouter);
 }
 
 // ------------------------------------------------------------------------
 // WhatsApp Webhook verification (GET)
-// Meta ruft: /webhook?hub.mode=subscribe&hub.challenge=12345&hub.verify_token=...
-// Wir müssen exakt "challenge" zurückgeben, wenn verify_token passt.
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  console.log("WEBHOOK_VERIFY:", { mode, token, hasChallenge: !!challenge });
+  console.log("WEBHOOK_VERIFY:", { mode, tokenPresent: !!token, hasChallenge: !!challenge });
 
   if (mode === "subscribe" && token && VERIFY_TOKEN && token === VERIFY_TOKEN) {
     return res.status(200).send(String(challenge));
@@ -80,7 +77,6 @@ app.get("/webhook", (req, res) => {
 // ------------------------------------------------------------------------
 // Helpers
 
-// Node 20+ hat global fetch; fallback nur falls nicht vorhanden.
 async function doFetch(url, options) {
   if (typeof fetch === "function") return fetch(url, options);
   const mod = await import("node-fetch");
@@ -97,6 +93,7 @@ async function sendTextMessage({ to, text }) {
   const payload = {
     messaging_product: "whatsapp",
     to,
+    type: "text",
     text: { body: text },
   };
 
@@ -159,15 +156,20 @@ function menuText() {
 // WhatsApp Webhook receiver (POST)
 // Wichtig: Meta erwartet schnell ein 200, daher sofort antworten, dann intern verarbeiten.
 app.post("/webhook", async (req, res) => {
-  console.log("WEBHOOK HIT!");
-  console.log("HEADERS:", req.headers);
-  console.log("BODY:", JSON.stringify(req.body, null, 2));
-
+  // Sofort bestätigen, sonst retry/timeout
   res.sendStatus(200);
-});
-  
+
+  try {
+    console.log("WEBHOOK HIT!");
+    console.log("HEADERS:", req.headers);
+    console.log("BODY:", JSON.stringify(req.body, null, 2));
+
     const incoming = extractIncomingMessage(req.body);
-    if (!incoming) return; // z.B. statuses/read receipts
+    if (!incoming) {
+      // z.B. statuses / read receipts
+      console.log("No message payload (likely status update).");
+      return;
+    }
 
     const { from, text } = incoming;
     console.log("PARSED MESSAGE:", { from, text });
@@ -236,15 +238,12 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
 });
 
-// Railway/Container beendet Deployments mit SIGTERM – das ist normal.
-// Wir beenden dann sauber (damit es nicht wie “Crash” aussieht).
 function shutdown(signal) {
   console.log(`Received ${signal}. Shutting down gracefully...`);
   server.close(() => {
     console.log("HTTP server closed.");
     process.exit(0);
   });
-  // Falls irgendwas hängt:
   setTimeout(() => process.exit(0), 5000).unref();
 }
 
