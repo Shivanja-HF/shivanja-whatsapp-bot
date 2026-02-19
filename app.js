@@ -159,11 +159,12 @@ function menuText() {
 // WhatsApp Webhook receiver (POST)
 // Wichtig: Meta erwartet schnell ein 200, daher sofort antworten, dann intern verarbeiten.
 app.post("/webhook", async (req, res) => {
+  console.log("WEBHOOK HIT!");
+  console.log("HEADERS:", req.headers);
+  console.log("BODY:", JSON.stringify(req.body, null, 2));
+
   res.sendStatus(200);
-
-  try {
-    console.log("INCOMING WEBHOOK:", JSON.stringify(req.body, null, 2));
-
+  
     const incoming = extractIncomingMessage(req.body);
     if (!incoming) return; // z.B. statuses/read receipts
 
