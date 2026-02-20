@@ -1,8 +1,7 @@
-// app.js — Minimal WhatsApp Cloud API Webhook (Railway)
+// app.js — WhatsApp Cloud API Webhook (Railway) + Postgres init (stabiler Start)
 
 const express = require("express");
-const { testConnection } = require("./db");
-const { initDb } = require("./db");
+const { testConnection, initDb } = require("./db");
 
 // ✅ Node 18+ hat fetch global; falls nicht vorhanden, fallback
 const fetchFn =
@@ -17,6 +16,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// ✅ Railway PORT (muss so bleiben)
 const PORT = Number(process.env.PORT) || 3000;
 
 // ✅ ENV sauber einmal einlesen
@@ -25,16 +25,27 @@ const WHATSAPP_TOKEN = (process.env.WHATSAPP_TOKEN || "").trim();
 const PHONE_NUMBER_ID = (process.env.PHONE_NUMBER_ID || "").trim();
 const GRAPH_VERSION = (process.env.GRAPH_VERSION || "v21.0").trim();
 
-// ✅ NEU: webhook.site URL optional (darf nie crashen)
+// ✅ Optional Debug Forward
 const WEBHOOKSITE_URL = (process.env.WEBHOOKSITE_URL || "").trim() || null;
 
 process.on("uncaughtException", (err) => console.error("UNCAUGHT EXCEPTION:", err));
 process.on("unhandledRejection", (err) => console.error("UNHANDLED REJECTION:", err));
 
+/* -------------------- Health -------------------- */
 app.get("/health", (req, res) => res.status(200).send("ok"));
 app.get("/", (req, res) => res.status(200).send("ok"));
 
-// --- WhatsApp Webhook Verification (GET) ---
+app.get("/health/db", async (req, res) => {
+  try {
+    const result = await testConnection();
+    res.json({ status: "ok", time: result.now });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+/* -------------------- Webhook Verify (GET) -------------------- */
 app.get("/webhook", (req, res) => {
   console.log("REQ: GET /webhook");
 
@@ -50,17 +61,8 @@ app.get("/webhook", (req, res) => {
     return res.sendStatus(403);
   }
 });
-app.get("/health/db", async (req, res) => {
-  try {
-    const result = await testConnection();
-    res.json({ status: "ok", time: result.now });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ status: "error", message: err.message });
-  }
-});
 
-// --- Helpers ---
+/* -------------------- Helpers -------------------- */
 async function sendTextMessage(to, text) {
   if (!WHATSAPP_TOKEN || !PHONE_NUMBER_ID) {
     console.error("Missing WHATSAPP_TOKEN or PHONE_NUMBER_ID");
@@ -114,19 +116,16 @@ function seenBefore(id) {
   if (!id) return false;
   if (seen.has(id)) return true;
   seen.add(id);
-  if (seen.size > 5000) {
-    // simple cleanup
-    seen.clear();
-  }
+  if (seen.size > 5000) seen.clear();
   return false;
 }
 
-// --- WhatsApp Webhook Receiver (POST) ---
+/* -------------------- Webhook Receiver (POST) -------------------- */
 app.post("/webhook", (req, res) => {
   // Wichtig: immer sofort 200 geben
   res.sendStatus(200);
 
-  // ✅ NEU: Rohdaten an webhook.site weiterleiten (Debug) — darf nie crashen
+  // Optional: Rohdaten an webhook.site weiterleiten (Debug) — darf nie crashen
   if (WEBHOOKSITE_URL) {
     fetchFn(WEBHOOKSITE_URL, {
       method: "POST",
@@ -137,9 +136,6 @@ app.post("/webhook", (req, res) => {
         body: req.body,
       }),
     }).catch((e) => console.error("WEBHOOKSITE forward failed:", e));
-  } else {
-    // optionales Log, damit klar ist warum nichts forwarded wird
-    // console.log("WEBHOOKSITE_URL not set; skipping forward.");
   }
 
   try {
@@ -170,7 +166,22 @@ app.post("/webhook", (req, res) => {
   }
 });
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server listening on port ${PORT}`);
-  initDb().catch(console.error);
-});
+/* -------------------- Stabiler Start: erst DB, dann Server -------------------- */
+async function startServer() {
+  try {
+    console.log("ENV PORT =", process.env.PORT);
+    console.log("Using PORT =", PORT);
+
+    await initDb();
+    console.log("Database initialized");
+
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server listening on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("Startup failed:", err);
+    process.exit(1);
+  }
+}
+
+startServer();
