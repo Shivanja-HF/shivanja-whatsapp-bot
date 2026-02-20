@@ -41,7 +41,7 @@ const MAIN_MENU_TEXT =
   `Willkommen bei SHIVANJA.\n` +
   `Bitte antworte mit einer Zahl:\n\n` +
   `1 = Fitness & Gesundheit\n` +
-  `2 = Physio\n` +
+  `2 = Physiotherapie\n` +
   `3 = Rehasport\n` +
   `4 = Termin\n\n` +
   `Tipp: „menü“ oder „0“ bringt dich zurück.`;
