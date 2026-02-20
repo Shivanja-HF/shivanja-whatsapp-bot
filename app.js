@@ -1,6 +1,7 @@
 // app.js — Minimal WhatsApp Cloud API Webhook (Railway)
 
 const express = require("express");
+const { testConnection } = require("./db");
 
 // ✅ Node 18+ hat fetch global; falls nicht vorhanden, fallback
 const fetchFn =
@@ -46,6 +47,15 @@ app.get("/webhook", (req, res) => {
   } else {
     console.log("Webhook verification failed");
     return res.sendStatus(403);
+  }
+});
+app.get("/health/db", async (req, res) => {
+  try {
+    const result = await testConnection();
+    res.json({ status: "ok", time: result.now });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ status: "error", message: err.message });
   }
 });
 
