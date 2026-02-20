@@ -2,6 +2,7 @@
 
 const express = require("express");
 const { testConnection } = require("./db");
+const { initDb } = require("./db");
 
 // ✅ Node 18+ hat fetch global; falls nicht vorhanden, fallback
 const fetchFn =
@@ -171,4 +172,5 @@ app.post("/webhook", (req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
+  initDb().catch(console.error);
 });
