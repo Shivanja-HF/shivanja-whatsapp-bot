@@ -1,16 +1,49 @@
+// db.js — Postgres helpers (Railway)
+
 const { Pool } = require("pg");
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false },
 });
 
 async function testConnection() {
-  const result = await pool.query("SELECT NOW()");
+  const result = await pool.query("SELECT NOW() AS now");
   return result.rows[0];
 }
 
-/* ----------- DIESE FUNKTIONEN MÜSSEN EXISTIEREN ----------- */
+async function initDb() {
+  // Tabellen + Indizes (idempotent)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      wa_id TEXT UNIQUE NOT NULL,
+      first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      wa_id TEXT PRIMARY KEY,
+      state TEXT NOT NULL DEFAULT 'MAIN_MENU',
+      data  JSONB NOT NULL DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at);
+
+    CREATE TABLE IF NOT EXISTS leads (
+      id BIGSERIAL PRIMARY KEY,
+      wa_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+      status TEXT NOT NULL DEFAULT 'OPEN',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_leads_created_at ON leads(created_at);
+    CREATE INDEX IF NOT EXISTS idx_leads_wa_id ON leads(wa_id);
+  `);
+}
 
 async function ensureUser(wa_id) {
   await pool.query(
@@ -24,24 +57,31 @@ async function ensureUser(wa_id) {
 
 async function getSession(wa_id) {
   const r = await pool.query(
-    `SELECT * FROM sessions WHERE wa_id = $1`,
+    `SELECT wa_id, state, data FROM sessions WHERE wa_id = $1`,
     [wa_id]
   );
   return r.rows[0] || null;
 }
 
-async function upsertSession(wa_id, state = "MAIN_MENU", data = {}) {
+async function setSession(wa_id, state, data = {}) {
   const r = await pool.query(
     `INSERT INTO sessions (wa_id, state, data, updated_at)
      VALUES ($1, $2, $3::jsonb, now())
      ON CONFLICT (wa_id)
      DO UPDATE SET state = EXCLUDED.state,
-                   data = EXCLUDED.data,
+                   data  = EXCLUDED.data,
                    updated_at = now()
-     RETURNING *`,
+     RETURNING wa_id, state, data`,
     [wa_id, state, JSON.stringify(data)]
   );
   return r.rows[0];
+}
+
+async function mergeSessionData(wa_id, patch = {}) {
+  const current = await getSession(wa_id);
+  const nextState = patch.state ?? (current?.state || "MAIN_MENU");
+  const nextData = { ...(current?.data || {}), ...(patch.dataMerge || {}) };
+  return setSession(wa_id, nextState, nextData);
 }
 
 async function createLead(wa_id, category, payload = {}) {
@@ -54,43 +94,13 @@ async function createLead(wa_id, category, payload = {}) {
   return r.rows[0];
 }
 
-async function initDb() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS users (
-      id BIGSERIAL PRIMARY KEY,
-      wa_id TEXT UNIQUE NOT NULL,
-      first_seen_at TIMESTAMPTZ DEFAULT now(),
-      last_seen_at TIMESTAMPTZ DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      wa_id TEXT PRIMARY KEY,
-      state TEXT NOT NULL DEFAULT 'MAIN_MENU',
-      data JSONB NOT NULL DEFAULT '{}'::jsonb,
-      updated_at TIMESTAMPTZ DEFAULT now()
-    );
-
-    CREATE TABLE IF NOT EXISTS leads (
-      id BIGSERIAL PRIMARY KEY,
-      wa_id TEXT NOT NULL,
-      category TEXT NOT NULL,
-      payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-      status TEXT NOT NULL DEFAULT 'OPEN',
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-  `);
-
-  console.log("Database initialized");
-}
-
-/* ----------- EXPORT AM ENDE ----------- */
-
 module.exports = {
   pool,
   testConnection,
   initDb,
   ensureUser,
   getSession,
-  upsertSession,
-  createLead
+  setSession,
+  mergeSessionData,
+  createLead,
 };
