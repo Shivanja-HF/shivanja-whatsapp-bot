@@ -2,6 +2,11 @@
 
 const express = require("express");
 
+// ✅ Node 18+ hat fetch global; falls nicht vorhanden, fallback
+const fetchFn =
+  global.fetch ||
+  ((...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args)));
+
 const app = express();
 app.use(express.json({ limit: "2mb" }));
 
@@ -12,10 +17,14 @@ app.use((req, res, next) => {
 
 const PORT = Number(process.env.PORT) || 3000;
 
+// ✅ ENV sauber einmal einlesen
 const VERIFY_TOKEN = (process.env.VERIFY_TOKEN || "").trim();
 const WHATSAPP_TOKEN = (process.env.WHATSAPP_TOKEN || "").trim();
 const PHONE_NUMBER_ID = (process.env.PHONE_NUMBER_ID || "").trim();
 const GRAPH_VERSION = (process.env.GRAPH_VERSION || "v21.0").trim();
+
+// ✅ NEU: webhook.site URL optional (darf nie crashen)
+const WEBHOOKSITE_URL = (process.env.WEBHOOKSITE_URL || "").trim() || null;
 
 process.on("uncaughtException", (err) => console.error("UNCAUGHT EXCEPTION:", err));
 process.on("unhandledRejection", (err) => console.error("UNHANDLED REJECTION:", err));
@@ -26,8 +35,6 @@ app.get("/", (req, res) => res.status(200).send("ok"));
 // --- WhatsApp Webhook Verification (GET) ---
 app.get("/webhook", (req, res) => {
   console.log("REQ: GET /webhook");
-
-  const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -57,7 +64,7 @@ async function sendTextMessage(to, text) {
     text: { body: text },
   };
 
-  const resp = await fetch(url, {
+  const resp = await fetchFn(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -108,9 +115,9 @@ app.post("/webhook", (req, res) => {
   // Wichtig: immer sofort 200 geben
   res.sendStatus(200);
 
-  // ✅ NEU: Rohdaten an webhook.site weiterleiten (Debug)
+  // ✅ NEU: Rohdaten an webhook.site weiterleiten (Debug) — darf nie crashen
   if (WEBHOOKSITE_URL) {
-    fetch(WEBHOOKSITE_URL, {
+    fetchFn(WEBHOOKSITE_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -119,6 +126,9 @@ app.post("/webhook", (req, res) => {
         body: req.body,
       }),
     }).catch((e) => console.error("WEBHOOKSITE forward failed:", e));
+  } else {
+    // optionales Log, damit klar ist warum nichts forwarded wird
+    // console.log("WEBHOOKSITE_URL not set; skipping forward.");
   }
 
   try {
@@ -148,7 +158,6 @@ app.post("/webhook", (req, res) => {
     console.error("WEBHOOK ERROR:", e);
   }
 });
-
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server listening on port ${PORT}`);
